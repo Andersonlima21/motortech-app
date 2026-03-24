@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: motortech-migrate
+  namespace: motortech
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: CHANGE_TO_ECR_URL:latest
+          command: ['php', 'artisan', 'migrate', '--force']
+          envFrom:
+            - configMapRef:
+                name: motortech-config
+            - secretRef:
+                name: motortech-secrets

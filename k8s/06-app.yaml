@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: motortech-app
+  namespace: motortech
+  labels:
+    app: motortech
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: motortech
+  template:
+    metadata:
+      labels:
+        app: motortech
+    spec:
+      initContainers:
+        - name: init-app
+          image: CHANGE_TO_ECR_URL:latest
+          command: ['sh', '-c', 'cp -r /var/www/. /app/']
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+      containers:
+        - name: php
+          image: CHANGE_TO_ECR_URL:latest
+          command: ['php-fpm', '-F']
+          ports:
+            - containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: motortech-config
+            - secretRef:
+                name: motortech-secrets
+          env:
+            - name: NEW_RELIC_APP_NAME
+              value: "motortech-api"
+            - name: NEW_RELIC_DISTRIBUTED_TRACING_ENABLED
+              value: "true"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          volumeMounts:
+            - name: app-code
+              mountPath: /var/www
+        - name: nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: app-code
+              mountPath: /var/www
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: app-code
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: motortech
+  namespace: motortech
+spec:
+  selector:
+    app: motortech
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

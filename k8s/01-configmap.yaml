@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: motortech-config
+  namespace: motortech
+data:
+  APP_NAME: MotorTech
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: "https://api.motortech.com"
+  LOG_CHANNEL: json-stderr
+  LOG_LEVEL: info
+  DB_CONNECTION: mysql
+  DB_HOST: CHANGE_TO_RDS_ENDPOINT
+  DB_PORT: "3306"
+  DB_DATABASE: motortech
+  DB_USERNAME: motortech
+  MAIL_MAILER: log
+  MAIL_FROM_ADDRESS: "noreply@motortech.com"
+  MAIL_FROM_NAME: MotorTech

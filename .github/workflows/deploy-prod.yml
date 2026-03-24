@@ -1,0 +1,62 @@
+name: Deploy - Production
+
+on:
+  push:
+    branches: [production]
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: motortech-eks
+  ECR_REPOSITORY: motortech-app
+  K8S_NAMESPACE: motortech
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f docker/php/Dockerfile.prod -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION
+
+      - name: Deploy to EKS
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          kubectl set image deployment/motortech-app \
+            php=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -n $K8S_NAMESPACE
+          kubectl rollout status deployment/motortech-app \
+            -n $K8S_NAMESPACE --timeout=300s
+
+      - name: Run Migrations
+        run: |
+          kubectl delete job motortech-migrate -n $K8S_NAMESPACE --ignore-not-found
+          kubectl apply -f k8s/09-migrate-job.yaml
+          kubectl wait --for=condition=complete job/motortech-migrate \
+            -n $K8S_NAMESPACE --timeout=300s

@@ -1,0 +1,41 @@
+FROM php:8.4-fpm
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# System deps + PHP extensions
+RUN apt-get update && apt-get install -y \
+    git curl unzip zip libzip-dev libpq-dev \
+    libpng-dev libjpeg-dev libfreetype6-dev \
+    libonig-dev libxml2-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd zip xml \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# New Relic PHP Agent
+RUN curl -L https://download.newrelic.com/php_agent/release/newrelic-php5-11.4.0.17-linux.tar.gz | tar xzf - \
+    && cd newrelic-php5-* \
+    && NR_INSTALL_SILENT=1 NR_INSTALL_USE_CP_NOT_LN=1 ./newrelic-install install \
+    && rm -rf newrelic-php5-* \
+    && sed -i 's/newrelic.appname = .*/newrelic.appname = "motortech-api"/' /usr/local/etc/php/conf.d/newrelic.ini \
+    && sed -i 's/newrelic.license = .*/newrelic.license = "${NEW_RELIC_LICENSE_KEY}"/' /usr/local/etc/php/conf.d/newrelic.ini
+
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www
+
+# Copy app
+COPY api_motortech/ /var/www/
+
+# Install PHP deps for production
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader \
+    && php artisan config:clear || true \
+    && php artisan route:clear || true \
+    && php artisan view:clear || true
+
+RUN chown -R www-data:www-data /var/www \
+    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache || true
+
+EXPOSE 9000
+
+CMD ["php-fpm"]
