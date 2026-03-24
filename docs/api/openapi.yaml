@@ -1,0 +1,871 @@
+openapi: 3.0.3
+info:
+  title: MotorTech API
+  description: |
+    API REST para gestão de oficina mecânica MotorTech.
+
+    ## Autenticação
+    - **Operadores**: Login via email/senha → JWT Token
+    - **Clientes**: Autenticação via CPF → JWT Token (Lambda Serverless)
+
+    Todas as rotas protegidas requerem o header `Authorization: Bearer <token>`.
+  version: 3.0.0
+  contact:
+    name: Equipe MotorTech
+    url: https://github.com/Andersonlima21
+
+servers:
+  - url: https://api.motortech.com/api
+    description: Produção (via API Gateway)
+  - url: http://localhost:8080/api_motortech/public/api
+    description: Desenvolvimento local
+
+tags:
+  - name: Autenticação
+    description: Login, registro e gestão de sessão
+  - name: Clientes
+    description: CRUD de clientes
+  - name: Veículos
+    description: CRUD de veículos
+  - name: Serviços
+    description: CRUD de serviços
+  - name: Insumos
+    description: CRUD de peças/insumos e gestão de estoque
+  - name: Ordens de Serviço
+    description: Fluxo completo de ordens de serviço
+  - name: Webhooks
+    description: Endpoints para integrações externas
+
+paths:
+  /auth/cpf:
+    post:
+      tags: [Autenticação]
+      summary: Autenticação via CPF (Lambda)
+      description: Valida o CPF do cliente, consulta no banco e retorna JWT token.
+      operationId: loginByCpf
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cpf]
+              properties:
+                cpf:
+                  type: string
+                  example: "529.982.247-25"
+                  description: CPF do cliente (com ou sem formatação)
+      responses:
+        '200':
+          description: Autenticação bem-sucedida
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  access_token:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIs..."
+                  token_type:
+                    type: string
+                    example: "bearer"
+                  expires_in:
+                    type: integer
+                    example: 3600
+                  cliente:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      nome:
+                        type: string
+                        example: "João Silva"
+        '400':
+          description: CPF inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Cliente não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /login:
+    post:
+      tags: [Autenticação]
+      summary: Login por email/senha
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "admin@motortech.com"
+                password:
+                  type: string
+                  example: "senha123"
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: "bearer"
+                  expires_in:
+                    type: integer
+                    example: 3600
+        '401':
+          description: Credenciais inválidas
+
+  /register:
+    post:
+      tags: [Autenticação]
+      summary: Registrar novo operador
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  example: "Maria Operadora"
+                email:
+                  type: string
+                  format: email
+                  example: "maria@motortech.com"
+                password:
+                  type: string
+                  example: "senha123"
+      responses:
+        '200':
+          description: Registro bem-sucedido com token
+
+  /me:
+    get:
+      tags: [Autenticação]
+      summary: Dados do usuário autenticado
+      operationId: me
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dados do usuário
+
+  /logout:
+    post:
+      tags: [Autenticação]
+      summary: Logout (invalidar token)
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logout realizado
+
+  /cliente/create:
+    post:
+      tags: [Clientes]
+      summary: Cadastrar cliente
+      operationId: createCliente
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome, cpf_cnpj]
+              properties:
+                nome:
+                  type: string
+                  example: "João Silva"
+                cpf_cnpj:
+                  type: string
+                  example: "529.982.247-25"
+                telefone:
+                  type: string
+                  example: "(11) 99999-0000"
+                email:
+                  type: string
+                  example: "joao@email.com"
+                endereco:
+                  type: string
+                  example: "Rua A, 123 - São Paulo/SP"
+      responses:
+        '201':
+          description: Cliente criado
+        '400':
+          description: CPF/CNPJ inválido ou duplicado
+
+  /cliente/read/{id}:
+    get:
+      tags: [Clientes]
+      summary: Buscar cliente por ID
+      operationId: readCliente
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cliente encontrado
+
+  /cliente/update/{id}:
+    put:
+      tags: [Clientes]
+      summary: Atualizar cliente
+      operationId: updateCliente
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nome:
+                  type: string
+                telefone:
+                  type: string
+                email:
+                  type: string
+                endereco:
+                  type: string
+      responses:
+        '200':
+          description: Cliente atualizado
+
+  /cliente/delete/{id}:
+    delete:
+      tags: [Clientes]
+      summary: Remover cliente
+      operationId: deleteCliente
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cliente removido
+
+  /veiculo/create:
+    post:
+      tags: [Veículos]
+      summary: Cadastrar veículo
+      operationId: createVeiculo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cliente_id, placa, marca, modelo, ano]
+              properties:
+                cliente_id:
+                  type: integer
+                  example: 1
+                placa:
+                  type: string
+                  example: "ABC1D23"
+                marca:
+                  type: string
+                  example: "Toyota"
+                modelo:
+                  type: string
+                  example: "Corolla"
+                ano:
+                  type: integer
+                  example: 2023
+      responses:
+        '201':
+          description: Veículo criado
+        '400':
+          description: Placa duplicada ou cliente inexistente
+
+  /veiculo/read/{id}:
+    get:
+      tags: [Veículos]
+      summary: Buscar veículo
+      operationId: readVeiculo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Veículo encontrado
+
+  /veiculo/update/{id}:
+    put:
+      tags: [Veículos]
+      summary: Atualizar veículo
+      operationId: updateVeiculo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                placa:
+                  type: string
+                marca:
+                  type: string
+                modelo:
+                  type: string
+                ano:
+                  type: integer
+      responses:
+        '200':
+          description: Veículo atualizado
+
+  /veiculo/delete/{id}:
+    delete:
+      tags: [Veículos]
+      summary: Remover veículo
+      operationId: deleteVeiculo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Veículo removido
+
+  /servico/create:
+    post:
+      tags: [Serviços]
+      summary: Cadastrar serviço
+      operationId: createServico
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServicoInput'
+      responses:
+        '201':
+          description: Serviço criado
+
+  /servico/read/{id}:
+    get:
+      tags: [Serviços]
+      summary: Buscar serviço
+      operationId: readServico
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Serviço encontrado
+
+  /servico/update/{id}:
+    put:
+      tags: [Serviços]
+      summary: Atualizar serviço
+      operationId: updateServico
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServicoInput'
+      responses:
+        '200':
+          description: Serviço atualizado
+
+  /servico/delete/{id}:
+    delete:
+      tags: [Serviços]
+      summary: Remover serviço
+      operationId: deleteServico
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Serviço removido
+
+  /insumo/create:
+    post:
+      tags: [Insumos]
+      summary: Cadastrar peça/insumo
+      operationId: createInsumo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PecaInput'
+      responses:
+        '201':
+          description: Insumo criado
+
+  /insumo/read/{id}:
+    get:
+      tags: [Insumos]
+      summary: Buscar insumo
+      operationId: readInsumo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Insumo encontrado
+
+  /insumo/update/{id}:
+    put:
+      tags: [Insumos]
+      summary: Atualizar insumo
+      operationId: updateInsumo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PecaInput'
+      responses:
+        '200':
+          description: Insumo atualizado
+
+  /insumo/delete/{id}:
+    delete:
+      tags: [Insumos]
+      summary: Remover insumo
+      operationId: deleteInsumo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Insumo removido
+
+  /insumo/estoque:
+    post:
+      tags: [Insumos]
+      summary: Gerenciar estoque
+      operationId: estoqueInsumo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, qtd, acao]
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                qtd:
+                  type: integer
+                  example: 10
+                acao:
+                  type: string
+                  enum: [adicionar, remover]
+                  example: "adicionar"
+      responses:
+        '200':
+          description: Estoque atualizado
+
+  /os/createOs:
+    post:
+      tags: [Ordens de Serviço]
+      summary: Criar ordem de serviço
+      operationId: createOs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cliente_id, veiculo_id]
+              properties:
+                cliente_id:
+                  type: integer
+                  example: 1
+                veiculo_id:
+                  type: integer
+                  example: 5
+                observacoes:
+                  type: string
+                  example: "Barulho no motor ao acelerar"
+      responses:
+        '201':
+          description: OS criada com status RECEBIDA
+
+  /os/aprovar/{id}:
+    put:
+      tags: [Ordens de Serviço]
+      summary: Aprovar OS para diagnóstico
+      operationId: aprovarOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OS movida para EM_DIAGNOSTICO
+
+  /os/diagnosticar/{id}:
+    post:
+      tags: [Ordens de Serviço]
+      summary: Registrar diagnóstico da OS
+      operationId: diagnosticarOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [servico]
+              properties:
+                servico:
+                  type: array
+                  items:
+                    type: object
+                    required: [servico_id, servico_qtd]
+                    properties:
+                      servico_id:
+                        type: integer
+                      servico_qtd:
+                        type: integer
+                      insumos:
+                        type: array
+                        items:
+                          type: object
+                          required: [peca_id, peca_qtd]
+                          properties:
+                            peca_id:
+                              type: integer
+                            peca_qtd:
+                              type: integer
+            example:
+              servico:
+                - servico_id: 1
+                  servico_qtd: 1
+                  insumos:
+                    - peca_id: 3
+                      peca_qtd: 2
+      responses:
+        '200':
+          description: Diagnóstico registrado, orçamento gerado, status AGUARDANDO_APROVACAO
+
+  /os/orcamento/{id}/{status}:
+    put:
+      tags: [Ordens de Serviço]
+      summary: Aprovar ou reprovar orçamento
+      operationId: orcamentoOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: status
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [APROVADO, REPROVADO]
+      responses:
+        '200':
+          description: |
+            APROVADO → status EM_EXECUCAO (estoque atualizado)
+            REPROVADO → status FINALIZADA
+
+  /os/finalizar/{id}:
+    put:
+      tags: [Ordens de Serviço]
+      summary: Finalizar OS
+      operationId: finalizarOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OS finalizada
+
+  /os/read/{id}:
+    get:
+      tags: [Ordens de Serviço]
+      summary: Buscar OS por ID
+      operationId: readOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OS encontrada
+
+  /os/status/{id}:
+    get:
+      tags: [Ordens de Serviço]
+      summary: Consultar status e histórico da OS
+      operationId: statusOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Status atual + histórico de transições
+
+  /os/list:
+    get:
+      tags: [Ordens de Serviço]
+      summary: Listar OS ativas (ordenadas por prioridade)
+      description: |
+        Ordena por prioridade: EM_EXECUCAO > AGUARDANDO_APROVACAO > EM_DIAGNOSTICO > RECEBIDA.
+        Dentro de cada status, ordena por data mais antiga primeiro.
+        Não lista OS com status FINALIZADA ou ENTREGUE.
+      operationId: listOs
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de OS ativas
+
+  /os/{id}/send-entrega-email:
+    post:
+      tags: [Ordens de Serviço]
+      summary: Enviar email de confirmação de entrega
+      operationId: sendEntregaEmail
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: Email alternativo (opcional)
+      responses:
+        '200':
+          description: Email enviado com link assinado (válido 48h)
+
+  /webhooks/orcamento/aprovacao:
+    post:
+      tags: [Webhooks]
+      summary: Webhook para aprovação/recusa de orçamento
+      description: Endpoint público (sem JWT). Requer header X-Webhook-Token.
+      operationId: webhookOrcamento
+      parameters:
+        - name: X-Webhook-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                orcamento_id:
+                  type: integer
+                os_id:
+                  type: integer
+                status:
+                  type: string
+                  enum: [APROVADO, REPROVADO]
+      responses:
+        '200':
+          description: Orçamento processado
+        '401':
+          description: Token inválido
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Erro na operação"
+
+    ServicoInput:
+      type: object
+      required: [nome, preco_base]
+      properties:
+        nome:
+          type: string
+          maxLength: 100
+          example: "Troca de óleo"
+        descricao:
+          type: string
+          example: "Troca de óleo do motor com filtro"
+        preco_base:
+          type: number
+          format: float
+          minimum: 0
+          example: 150.00
+        tempo_estimado_minutos:
+          type: integer
+          minimum: 0
+          example: 30
+
+    PecaInput:
+      type: object
+      required: [nome, preco_unitario]
+      properties:
+        nome:
+          type: string
+          maxLength: 100
+          example: "Filtro de óleo"
+        descricao:
+          type: string
+          example: "Filtro de óleo universal"
+        preco_unitario:
+          type: number
+          format: float
+          minimum: 0
+          example: 35.90
+        quantidade_estoque:
+          type: integer
+          minimum: 0
+          example: 50
